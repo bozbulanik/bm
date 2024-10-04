@@ -1,0 +1,20 @@
+Linguistics
+Linguistics Videos
+Tahtacılar
+Programming
+Research
+Linux
+Population Genetics
+Misc.
+Blogs
+Jobs
+To read
+NLP
+Programming Videos
+Game
+Historical Linguistics
+CLI-TUI
+
+
+Add Bookmark: Accept URL, fetch metadata, and store in a database.
+View Bookmarks: Display bookmarks in a searchable or categorized format.
