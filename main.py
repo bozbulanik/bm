@@ -9,6 +9,7 @@ search bookmarks
 """
 import urwid as u
 import json
+import webbrowser
 
 class ListItem(u.WidgetWrap):
     def __init__ (self, bookmark, actions=None):
@@ -20,33 +21,55 @@ class ListItem(u.WidgetWrap):
         """Update the display to show * if there are actions."""
         name = self.content["title"]
         if self.actions:
-            name += " *"  # Add * to indicate pending actions
-        t = u.AttrWrap(u.Text(name, wrap="clip"), "item", "item_selected")
+            if("delete" in self.actions):
+                name = "Will be deleted: " + name  # Add * to indicate pending actions
+            else:
+                name = "* " + name  # Add * to indicate pending actions
+            t = u.AttrWrap(u.Text(name, wrap="clip"), "item_action", "item_selected_action")
+        else:
+            t = u.AttrWrap(u.Text(name, wrap="clip"), "item", "item_selected")
+
         self._w = t  # Update the widget
         
     def selectable (self):
         return True
     
     def keypress(self, size, key):
-        if key == 'd':  # Example: press 'd' to delete an item
-            return 'delete'
-        elif key == 'enter':  # Example: press 'o' to open the bookmark in a browser
-            return 'open'
+        if key == 'd':  # Add action 'delete'
+            self.actions.append('delete')
+            self.update_display()  # Update display with *
+            return 'action_added'
+        elif key == 'z':  # Remove the most recent action
+            if self.actions:
+                self.actions.pop()
+            self.update_display()
+            return 'action_removed'
+        elif key == 'o':  # Confirm actions
+            return 'confirm'
+        elif key == 'enter':
+            url = self.content.get('url')
+            if url:
+                webbrowser.open(url)  # Open the bookmark URL in the browser
+            return 'open_browser'
         return key
 
 class ListView(u.WidgetWrap):
     def __init__(self):
-        u.register_signal(self.__class__, ['show_details', 'item_action'])
+        u.register_signal(self.__class__, ['show_details', 'item_action', 'confirm_actions'])
         self.walker = u.SimpleFocusListWalker([])
         lb = u.ListBox(self.walker)
         u.WidgetWrap.__init__(self, lb)
 
     def keypress(self, size, key):
-        focus_w, _ = self.walker.get_focus()
+        focus_w, focus_pos = self.walker.get_focus()
         if focus_w:
             action = focus_w.keypress(size, key)
-            if action in ['delete', 'move', 'open']:
+            if action == 'action_added' or action == 'action_removed':
+                next_pos = (focus_pos + 1) % len(self.walker)  # Get the next position, wrap around if at the end
+                self.walker.set_focus(next_pos)  # Move focus to the next item
                 u.emit_signal(self, 'item_action', action)
+            elif action == 'confirm':
+                u.emit_signal(self, 'confirm_actions')
             else:
                 return super().keypress(size, key)
                 
@@ -82,33 +105,49 @@ class App(object):
     def show_details(self, bookmark):
         self.detail_view.set_bookmark(bookmark)
 
-    def handle_keypress(self, key):
-        if key == 'delete':
-            focus_w, _ = self.list_view.walker.get_focus()
-            if focus_w:
-                bookmark = focus_w.content
-                self.list_view.walker.remove(focus_w)
-        elif key == 'open':
-            focus_w, _ = self.list_view.walker.get_focus()
-            if focus_w:
-                bookmark = focus_w.content
-                import webbrowser
-                webbrowser.open(bookmark["url"])  # Opens in default web browser
+    def handle_keypress(self, action):
+        focus_w, _ = self.list_view.walker.get_focus()
+        if not focus_w:
+            return
+        bookmark = focus_w.content
+        url = bookmark["url"]
+
+        if action == 'action_added':
+            if url not in self.actions_dict:
+                self.actions_dict[url] = []
+            focus_w.actions = self.actions_dict[url]  # Sync the actions
+        elif action == 'action_removed':
+            if url in self.actions_dict and not focus_w.actions:
+                del self.actions_dict[url]
     
+    def confirm_actions(self):
+        """Process and apply all the actions."""
+        for url, actions in self.actions_dict.items():
+            for action in actions:
+                if action == 'delete':
+                    print(f"Deleting bookmark: {url}")
+                    # Implement the delete logic here
+
+        # After confirming, clear the actions
+        self.actions_dict.clear()
+        self.update_data()
             
     def __init__(self):
         self.palette = {
-            ("bg",               "light gray",       "black"),
-            ("item",          "light gray",       "black"),
-            ("item_selected", "light gray",       "dark red"),
-            ("footer",           "black", "light gray")
+            ("bg",                      "light gray",       "black"),
+            ("item",                    "light gray",       "black"),
+            ("item_action",             "light gray",       "light blue"),
+            ("item_selected",           "light gray",       "dark red"),
+            ("item_selected_action",    "black",       "yellow"),
+            ("footer",                  "black",            "light gray")
         }
-
+        self.actions_dict = {}
         self.list_view = ListView()
         self.detail_view = DetailView()
 
         u.connect_signal(self.list_view, 'show_details', self.show_details)
         u.connect_signal(self.list_view, 'item_action', self.handle_keypress)
+        u.connect_signal(self.list_view, 'confirm_actions', self.confirm_actions)
         
         footer = u.AttrWrap(u.Text(" q to exit | d: delete | o: open"), "footer") 
         
